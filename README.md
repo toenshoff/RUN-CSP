@@ -1,6 +1,6 @@
 # RUN-CSP
 This repository contains a Tensorflow implementation of RUN-CSP,
-a recurrent neural network architecture for solving Constraint Satisfaction Problems.
+a recurrent neural network architecture for solving Constraint Satisfaction Problems (https://arxiv.org/abs/1909.08387).
 
 We provide a tool to automatically train a RUN-CSP instance for any fixed constraint language.
 A Constraint Language is represented as a JSON file that specifies a domain size and the relations.
@@ -22,7 +22,10 @@ However, they also allow training and evaluation data to be loaded from disk.
 The scripts for Max-3-Col and Max-IS can be trained on graphs stored in the adjacency list format from NetworkX.
 For example, use
 
-```python3 train_coloring.py -m models/coloring_model -d data/a_bunch_of_graphs ```
+```python3 train_coloring.py -m models/coloring_model -d data/3Col_100 ```
 
-to train a RUN-CSP model for maximum 3-coloring on all '.adj' files in the specified directory.
-The scripts for Max-2SAT can load 2-cnf formulas specified in the DIMACS cnf format.
+to train a RUN-CSP model for maximum 3-coloring on all '.adj' files in the 'data/3Col_100' directory.
+The repository contains 3 graph datasets for 3 colorability with different graph sizes: 3Col_100, 3Col_200, 3Col_400.
+These each contain 2500 pairs of graphs, where one graph is 3-colorable and the other graph has one additional edge and is non-3-colorable.
+
+The scripts for Max-2SAT can run with 2-cnf formulas specified in the DIMACS cnf format.
