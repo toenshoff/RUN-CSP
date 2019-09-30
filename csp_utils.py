@@ -86,8 +86,12 @@ class CSP_Instance:
         conflicts = 0
         matrices = self.language.relation_matrices
         for r, M in matrices.items():
-            has_conflict = [M[assignment[u], assignment[v]] for [u, v] in self.clauses[r]]
-            conflicts += len(has_conflict) - np.count_nonzero(has_conflict)
+            # test for each clause if it is satisfied: is_valid[i]=1 <=> i-th clause of type r is satisfied
+            is_valid = np.int32([M[assignment[u], assignment[v]] for [u, v] in self.clauses[r]])
+            # invert encoding and count unsatisfied clauses
+            has_conflict = 1 - is_valid
+            # sum up conflicts for each type of clause
+            conflicts += np.sum(has_conflict)
         return conflicts
 
     @staticmethod

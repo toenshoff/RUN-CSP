@@ -93,7 +93,7 @@ class Symmetric_Message_Network():
                                                kernel_regularizer=tf.keras.regularizers.l2())
         self.out_norm = tf.keras.layers.BatchNormalization()
 
-    def __call__(self, in_right, in_left):
+    def __call__(self, in_left, in_right):
         """
         :param in_left: A tensor of shape (m, h) and type float32. m is the number of constraints to which this messaging function is applied.
                         h is the length of the input vectors. in_left[i,:] is the input vector from the left end point of the i-th constraint.
