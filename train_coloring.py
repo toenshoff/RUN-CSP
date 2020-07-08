@@ -1,5 +1,5 @@
-from model import Coloring_Network
-from csp_utils import CSP_Instance, coloring_language
+from model import RUN_CSP
+from csp_utils import CSP_Instance, Constraint_Language
 from train import train
 
 import data_utils
@@ -7,7 +7,10 @@ import data_utils
 import argparse
 import os
 import random
+import glob
 from tqdm import tqdm
+
+import networkx as nx
 
 
 def main():
@@ -16,27 +19,23 @@ def main():
     parser.add_argument('-t', '--t_max', type=int, default=25, help='Number of iterations t_max for which RUN-CSP runs on each instance')
     parser.add_argument('-b', '--batch_size', type=int, default=64, help='Batch size for training')
     parser.add_argument('-m', '--model_dir', type=str, help='Model directory in which the trained model is stored')
-    parser.add_argument('-d', '--data_path', default=None, help='A path to a training set of graphs in the NetworkX adj_list format. If left unspecified, random instances are used.')
-    parser.add_argument('-v', '--n_variables', type=int, default=100, help='Number of variables in each training instance. Only used when --data_path is not specified.')
-    parser.add_argument('-c', '--n_clauses', type=int, default=300, help='Number of clauses in each training instance. Only used when --data_path is not specified.')
-    parser.add_argument('-i', '--n_instances', type=int, default=5000, help='Number of instances for training. Only used when --data_path is not specified.')
+    parser.add_argument('-d', '--data_path', help='A path to a training set of graphs in the dimacs graph format.')
+    parser.add_argument('--n_colors', type=int, default=3, help='Number of colors')
     args = parser.parse_args()
 
-    if args.data_path is not None:
-        print('loading graphs...')
-        graphs = data_utils.load_graphs(os.path.join(args.data_path, '**'))
-        random.shuffle(graphs)
-        print('Converting graphs to CSP Instances')
-        instances = [CSP_Instance.graph_to_csp_instance(g, coloring_language, 'NEQ') for g in graphs]
-    else:
-        print(f'Generating {args.n_instances} training instances')
-        instances = [CSP_Instance.generate_random(args.n_variables, args.n_clauses, coloring_language) for _ in tqdm(range(args.n_instances))]
-        
+    language = Constraint_Language.get_coloring_language(args.n_colors)
+
+    print('loading graphs...')
+    names, graphs = data_utils.load_graphs(args.data_path)
+    random.shuffle(graphs)
+    print('Converting graphs to CSP Instances')
+    instances = [CSP_Instance.graph_to_csp_instance(g, language, 'NEQ') for g in tqdm(graphs)]
+    
     # combine instances into batches
     train_batches = CSP_Instance.batch_instances(instances, args.batch_size)
 
     # construct and train new network
-    network = Coloring_Network(args.model_dir)
+    network = RUN_CSP(args.model_dir, language)
     train(network, train_batches, epochs=args.epochs, t_max=args.t_max)
 
 

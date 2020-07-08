@@ -5,7 +5,6 @@ import itertools
 
 from tqdm import tqdm
 
-
 class Constraint_Language:
     """ Class to represent a fixed Constraint Language """
 
@@ -39,6 +38,21 @@ class Constraint_Language:
         language = Constraint_Language(data['domain_size'], data['relations'])
         return language
 
+    @staticmethod
+    def get_coloring_language(d):
+
+        def get_NEQ_relation(d):
+            clauses = []
+            for i in range(d):
+                for j in range(d):
+                    if not i == j:
+                        clauses.append([i, j])
+            return clauses
+
+        lang = Constraint_Language(domain_size=d,
+                                   relations={'NEQ': get_NEQ_relation(d)})
+        return lang
+
 
 # define constant constraint languages for Vertex Coloring, Independent Set and Max2Sat
 coloring_language = Constraint_Language(domain_size=3,
@@ -52,11 +66,14 @@ max_2sat_language = Constraint_Language(domain_size=2,
                                                    'IMPL': [[0, 0], [0, 1], [1, 1]],
                                                    'NAND': [[0, 0], [0, 1], [1, 0]]})
 
+mc_weighted_language = Constraint_Language(domain_size=2,
+                                           relations={'EQ': [[1, 1], [0, 0]], 'NEQ': [[1, 0], [0, 1]]})
+
 
 class CSP_Instance:
     """ A class to represent a CSP instance """
 
-    def __init__(self, language, n_variables, clauses):
+    def __init__(self, language, n_variables, clauses, clause_weights=None, name=None):
         """
         :param language: A Constraint_Language object
         :param n_variables: The number of variables
@@ -67,6 +84,13 @@ class CSP_Instance:
         self.n_variables = n_variables
         # assure clauses are un numpy format
         self.clauses = {r: np.int32(c) for r, c in clauses.items()}
+        self.name = name
+        
+        if clause_weights is not None:
+            self.weighted = True
+            self.clause_weights = {r: np.float32(w) for r, w in clause_weights.items()}
+        else:
+            self.weighted = False
 
         # compute number of clauses and degree of each variable
         all_clauses = list(itertools.chain.from_iterable(clauses.values()))
@@ -86,13 +110,14 @@ class CSP_Instance:
         conflicts = 0
         matrices = self.language.relation_matrices
         for r, M in matrices.items():
-            # test for each clause if it is satisfied: is_valid[i]=1 <=> i-th clause of type r is satisfied
-            is_valid = np.int32([M[assignment[u], assignment[v]] for [u, v] in self.clauses[r]])
-            # invert encoding and count unsatisfied clauses
-            has_conflict = 1 - is_valid
-            # sum up conflicts for each type of clause
+            valid = np.float32([M[assignment[u], assignment[v]] for [u, v] in self.clauses[r]])
+            has_conflict = 1.0 - valid
+            if self.weighted:
+                has_conflict = has_conflict * self.clause_weights[r]
+
             conflicts += np.sum(has_conflict)
-        return conflicts
+
+        return int(conflicts)
 
     @staticmethod
     def merge(instances):
@@ -113,7 +138,13 @@ class CSP_Instance:
             n_variables += instance.n_variables
 
         clauses = {r: np.vstack(c) for r, c in clauses.items()}
-        merged_instance = CSP_Instance(language, n_variables, clauses)
+
+        if instances[0].weighted:
+            weights = {r: np.hstack([x.clause_weights[r] for x in instances]) for r in language.relation_names}
+        else:
+            weights = None
+
+        merged_instance = CSP_Instance(language, n_variables, clauses, weights)
         return merged_instance
 
     @staticmethod
@@ -138,7 +169,7 @@ class CSP_Instance:
         return batches
 
     @staticmethod
-    def generate_random(n_variables, n_clauses, language):
+    def generate_random(n_variables, n_clauses, language, weighted=False):
         """
         :param n_variables: Number of variables
         :param n_clauses: Number of clauses
@@ -154,11 +185,17 @@ class CSP_Instance:
             r = relations[i]
             clauses[r].append(clause)
 
-        instance = CSP_Instance(language, n_variables, clauses)
+        if weighted:
+            clause_weights = {r: np.random.uniform(size=[len(clauses[r])]) for r in language.relation_names}
+            # clause_weights = {r: np.ones([len(clauses[r])]) for r in language.relation_names}
+        else:
+            clause_weights = None
+            
+        instance = CSP_Instance(language, n_variables, clauses, clause_weights)
         return instance
 
     @staticmethod
-    def graph_to_csp_instance(graph, language, relation_name):
+    def graph_to_csp_instance(graph, language, relation_name, name=None):
         """
         :param graph: A NetworkX graphs
         :param language: A Constraint Language
@@ -167,18 +204,37 @@ class CSP_Instance:
         """
         adj = nx.linalg.adjacency_matrix(graph)
         n_variables = adj.shape[0]
-        clauses = {relation_name: np.int32(np.transpose(adj.nonzero()))}
+        clauses = {relation_name: np.int32(graph.edges())}
 
-        instance = CSP_Instance(language, n_variables, clauses)
+        instance = CSP_Instance(language, n_variables, clauses, name=name)
         return instance
 
     @staticmethod
-    def cnf_to_instance(formula):
+    def graph_to_weighted_mc_instance(graph, name=None):
+        """
+        :param graph: A NetworkX graphs
+        :param language: A Constraint Language
+        :param relation_name: The relation name to assign to each edge
+        :return: A CSP Instance representing the graph
+        """
+        adj = nx.linalg.adjacency_matrix(graph)
+        n_variables = adj.shape[0]
+        clauses = {'EQ': [], 'NEQ': []}
+        for u, v, w in graph.edges(data='weight'):
+            rel = 'NEQ' if w > 0 else 'EQ'
+            clauses[rel].append([u, v])
+
+        instance = CSP_Instance(mc_weighted_language, n_variables, clauses, name=name)
+        return instance
+
+    @staticmethod
+    def cnf_to_instance(formula, clause_weights=None):
         """
         :param formula: A 2-cnf formula represented as a list of lists of ints.
                         I.e. ((X1 or X2) and (not X2 or X3)) is [[1, 2], [-2, 3]]
         :return: A CSP instance that represents the formula
         """
+
         def clause_type(clause):
             # returns the relation type for a given clause
             if clause[0] * clause[1] < 0:
@@ -190,20 +246,31 @@ class CSP_Instance:
 
         def normalize_2SAT_clauses(formula):
             # Transforms clauses of form [v, -u] to [-u, v]. This unifies the direction of all implication clauses.
+            fill_monom_clause = lambda c: [c[0], c[0]] if len(c) == 1 else c
+            filled_formula = list(map(fill_monom_clause, formula))
             normalize_impl_clause = lambda c: [c[1], c[0]] if clause_type(c) == 'IMPL' and c[0] > 0 else c
-            normed_formula = list(map(normalize_impl_clause, formula))
+            normed_formula = list(map(normalize_impl_clause, filled_formula))
             return normed_formula
 
         formula = normalize_2SAT_clauses(formula)
 
         clauses = {t: [] for t in {'OR', 'IMPL', 'NAND'}}
-        for c in formula:
+
+        weighted = clause_weights is not None
+        if weighted:
+            weights = {t: [] for t in {'OR', 'IMPL', 'NAND'}}
+        else:
+            weights = None
+
+        for i, c in enumerate(formula):
             u = abs(c[0]) - 1
             v = abs(c[1]) - 1
             t = clause_type(c)
             clauses[t].append([u, v])
+            if weighted:
+                weights[t].append(clause_weights[i])
 
         n_variables = np.max([np.max(np.abs(clause)) for clause in formula])
 
-        instance = CSP_Instance(max_2sat_language, n_variables, clauses)
+        instance = CSP_Instance(max_2sat_language, n_variables, clauses, clause_weights=weights)
         return instance

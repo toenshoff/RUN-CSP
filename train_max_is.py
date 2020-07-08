@@ -17,10 +17,7 @@ def train(network, train_data, t_max, epochs):
     :param epochs: Number of training epochs
     '''
 
-    # only save network state when conflicts are below this threshold
-    conflict_threshold = 0.02
-
-    best_is_ratio = 0.0
+    best_ratio = 0.0
     for e in range(epochs):
         print('Epoch: {}'.format(e))
 
@@ -30,41 +27,37 @@ def train(network, train_data, t_max, epochs):
         # Get average percentage of conflicting edges and relative size of independent set
         conflict_ratio = output_dict['conflict_ratio']
         is_ratio = output_dict['is_ratio']
-        print(f'Training Conflict Probability: {conflict_ratio}, IS Ratio {is_ratio}')
+        corrected_ratio = output_dict['corrected_ratio']
+        print(f'Ratio of violated constraints: {conflict_ratio}, IS Ratio: {is_ratio}, Corrected: {corrected_ratio}')
 
         # if network improved, save new model
-        if conflict_ratio < conflict_threshold and is_ratio > best_is_ratio:
+        if corrected_ratio > best_ratio:
             network.save_checkpoint('best')
-            best_is_ratio = is_ratio
+            best_ratio = corrected_ratio
             
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-e', '--epochs', type=int, default=20, help='Number of training epochs')
-    parser.add_argument('-t', '--t_max', type=int, default=25, help='Number of iterations t_max for which RUN-CSP runs on each instance')
-    parser.add_argument('-b', '--batch_size', type=int, default=64, help='Batch size for training')
+    parser.add_argument('-s', '--state_size', type=int, default=128, help='Size of the variable states in RUN-CSP')
+    parser.add_argument('-k', '--kappa', type=float, default=1.0, help='The parameter kappa for the loss function')
+    parser.add_argument('-e', '--epochs', type=int, default=25, help='Number of training epochs')
+    parser.add_argument('-t', '--t_max', type=int, default=30, help='Number of iterations t_max for which RUN-CSP runs on each instance')
+    parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size for training')
     parser.add_argument('-m', '--model_dir', type=str, help='Model directory in which the trained model is stored')
-    parser.add_argument('-d', '--data_path', default=None, help='A path to a training set of graphs in the NetworkX adj_list format. If left unspecified, random instances are used.')
-    parser.add_argument('-v', '--n_variables', type=int, default=100, help='Number of variables in each training instance. Only used when --data_path is not specified.')
-    parser.add_argument('-c', '--n_clauses', type=int, default=300, help='Number of clauses in each training instance. Only used when --data_path is not specified.')
-    parser.add_argument('-i', '--n_instances', type=int, default=5000, help='Number of instances for training. Only used when --data_path is not specified.')
+    parser.add_argument('-d', '--data_path', help='A path to a training set of graphs in the dimacs format.')
     args = parser.parse_args()
-
-    if args.data_path is not None:
-        print('loading graphs...')
-        graphs = data_utils.load_graphs(os.path.join(args.data_path, '**'))
-        random.shuffle(graphs)
-        print('Converting graphs to CSP Instances')
-        instances = [CSP_Instance.graph_to_csp_instance(g, is_language, 'NAND') for g in graphs]
-    else:
-        print(f'Generating {args.n_instances} training instances')
-        instances = [CSP_Instance.generate_random(args.n_variables, args.n_clauses, is_language) for _ in tqdm(range(args.n_instances))]
-        
+ 
+    print('loading graphs...')
+    names, graphs = data_utils.load_graphs(args.data_path)
+    random.shuffle(graphs)
+    print('Converting graphs to CSP Instances')
+    instances = [CSP_Instance.graph_to_csp_instance(g, is_language, 'NAND') for g in graphs]
+    
     # combine instances into batches
     train_batches = CSP_Instance.batch_instances(instances, args.batch_size)
 
     # construct new network
-    network = Max_IS_Network(args.model_dir)
+    network = Max_IS_Network(args.model_dir, state_size=args.state_size)
     train(network, train_batches, t_max=args.t_max, epochs=args.epochs)
 
 

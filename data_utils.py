@@ -5,31 +5,47 @@ import glob
 from tqdm import tqdm
 
 
+def load_dimacs_graph(path):
+    f = open(path, 'r')
+    g = nx.Graph()
+    for line in f:
+        s = line.split()
+        if s[0] == 'p':
+            g.add_nodes_from(range(int(s[2])))
+        elif s[0] == 'e':
+            if len(s) == 4:
+                g.add_edge(int(s[1]) - 1, int(s[2]) - 1, weight=int(s[3]))
+            else:
+                g.add_edge(int(s[1])-1, int(s[2])-1)
+
+    f.close()
+    return g
+
+
+def write_dimacs_graph(graph, path):
+    f = open(path, 'w')
+    
+    f.write(f'p edge {graph.number_of_nodes()} {graph.number_of_edges()}\n')
+
+    for u, v in graph.edges():
+        f.write(f'e {int(u)+1} {int(v)+1}\n')
+
+    f.close()
+
+
 def load_graphs(path):
     """
     Loads the graphs from all '.adj' files in NetworkX adjacency list format
     :param path: The pattern under which to look for .adj files
     :return: A list of NetworkX graphs
     """
-    paths = glob.glob(os.path.join(path, '*.adj'), recursive=True)
-    graphs = [nx.read_adjlist(p) for p in tqdm(paths)]
-    return graphs
+    paths = glob.glob(os.path.join(path, '*.dimacs'), recursive=True)
+    graphs = [load_dimacs_graph(p) for p in tqdm(paths)]
+    names = [os.path.basename(p) for p in paths]
+    return names, graphs
 
 
-def write_graphs(graphs, path):
-    if not os.path.exists(path):
-        os.mkdir(path)
-
-    print(f'saving graphs at {path}')
-    existing_files = glob.glob(os.path.join(path, '*.adj'))
-    num_exist = len(existing_files)
-
-    for i, g in enumerate(graphs):
-        graph_path = os.path.join(path, f'{num_exist+i}.adj')
-        nx.write_adjlist(g, graph_path)
-
-
-def load_dimacs_cnf(path):
+def load_dimacs_cnf(path, weighted=False):
     """
     Loads a cnf formula from a file in dimacs cnf format
     :param path: the path to a .cnf file in dimacs format
@@ -38,14 +54,24 @@ def load_dimacs_cnf(path):
     """
     file = open(path, 'r')
     f = []
+    if weighted:
+        weights = []
     for line in file:
         s = line.split()
         if not s[0] == 'c' and not s[0] == 'p':
             assert(s[-1] == '0')
-            clause = [int(l) for l in s[:-1]]
+            if weighted:
+                weight = int(s[0])
+                weights.append(weight)
+                clause = [int(l) for l in s[1:-1]]
+            else:
+                clause = [int(l) for l in s[:-1]]
             f.append(clause)
     file.close()
-    return f
+    if weighted:
+        return f, weights
+    else:
+        return f
 
 
 def write_dimacs_cnf(f, path):
@@ -70,14 +96,10 @@ def write_dimacs_cnf(f, path):
     return f
 
 
-def load_formulas(path):
+def load_formulas(path, weighted=False):
     """ Loads cnf formulas from all .cnf files found under the pattern 'path' """
-    paths = glob.glob(os.path.join(path, '**/*.cnf'), recursive=True)
-    formulas = [load_dimacs_cnf(p) for p in tqdm(paths)]
-    return formulas
+    paths = glob.glob(os.path.join(path, f'**/*.{"wcnf" if weighted else "cnf"}'), recursive=True)
+    formulas = [load_dimacs_cnf(p, weighted) for p in tqdm(paths)]
+    names = [os.path.basename(p) for p in paths]
+    return names, formulas
 
-
-def write_formulas(formulas, path):
-    """ Writes a list of cnf formulas to the location in 'path' """
-    for i, f in enumerate(formulas):
-        write_dimacs_cnf(f, os.path.join(path, f'{i}.cnf'))
